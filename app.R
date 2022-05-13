@@ -6,7 +6,7 @@ library(emg)
 library(ggpubr)
 
 
-samples <- readRDS("finalsamples.rds")
+samples <- readRDS("samples.rds")
 #to standardize based on included data
 meanheartw <-445.059
 sdheartw <- 122.5996
