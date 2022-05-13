@@ -275,7 +275,7 @@ body <- dashboardBody(
   tabItems(
     tabItem(tabName = "calculator",
             fluidRow(
-              column(width = 8,
+              column(width = 8, 
                      box(
                        title = "Histogram of 50,000 simulations",
                        width = NULL
@@ -322,7 +322,7 @@ body <- dashboardBody(
                      
                      
               )
-            )
+            ), style = "width:650px;align:center;"
     )
     ,
     tabItem(tabName = "information",
