@@ -5,20 +5,11 @@ library(HDInterval)
 library(emg)
 library(ggpubr)
 
-
 samples <- readRDS("samples.rds")
 #to standardize based on included data
 meanheartw <-445.059
-sdheartw <- 122.5996
-meanage <- 54.45597
-sdage <- 17.12676
-meanweight <- 82.19719
-sdweight <- 22.00117
 meanheight <- 174.0564
-sdheight <-9.648763
-
-meanbmi <- 26.97812
-sdbmi <- 6.327531
+input <- list()
 
 meanline <- rep(NA, 100)
 upperline <- rep(NA,100)
@@ -31,285 +22,435 @@ inv_logit <- function( x ) {
   p
 }
 
-server <- function(input, output) {
+input$weight <- 60
+input$height <- 178
+input$heart <- 500
+input$sex <- 1
+input$age <- 30
 
+server <- function(input, output) {
+  
   # Simulate heart weights
   mydata <- eventReactive(input$goButton, {
-    iter = 50000
-
-    ##Create mu
-    mu_prep <- rep(0, 24000)
-    mu_prep <- (samples$gamma_sex*as.numeric(input$sex)+
-                  samples$gamma_age*((input$age-meanage)/sdage)+
-                  samples$gamma_weight*((input$weight-meanweight)/sdweight)+
-                  samples$gamma_height*((input$height-meanheight)/sdheight))
-    mu_prep <- sample(mu_prep, iter, replace = TRUE )
-
-    beta <- sample(samples$beta, iter, replace = TRUE)
-    sigma <- sample(samples$sigma, iter, replace = TRUE)
-    lambda <- sample(samples$lambda, iter, replace = TRUE)
+    iter = 240000
     
+    
+    sigma <- sample(samples$sigma, iter, replace = TRUE)
+    alpha <- sample(samples$alpha, iter, replace = TRUE)
+    lambda <- sample(samples$lambda, iter, replace = TRUE)
+    hw_incr <- sample(samples$HW_incr, iter, replace = TRUE)
+    
+    mu <- ((input$height/meanheight)^3)*alpha
     # simulate heart weights
-    cardiomegaly <- remg(iter,
-                              mu = beta + mu_prep,
-                              sigma = sigma,
-                              lambda = lambda
-                              )*sdheartw + meanheartw
-    noncardiomegaly <- rnorm(
-      iter,
-      mean = beta+mu_prep,
-      sd = sigma)*sdheartw + meanheartw
-
+    hypertrophy <- remg(iter,
+                        mu*hw_incr,
+                        sigma,
+                        (lambda/((input$height/meanheight)^3))
+    )*meanheartw
+    
+    nonhypertrophy <- rnorm(iter,
+                            mu,
+                            sigma
+    )*meanheartw
+    
     data <- list(
-      cardiomegaly  = cardiomegaly,
-      noncardiomegaly = noncardiomegaly,
+      hypertrophy  = hypertrophy,
+      nonhypertrophy = nonhypertrophy,
       iter = iter,
       heart = input$heart
-
+      
     )
     data
   })
-
-  # Calculate the probability of cardiomegaly
+  
+  # Calculate the probability of hypertrophy
   mydata2 <- eventReactive(input$goButton, {
-    iter = 1000
-    bmi <- input$weight/((input$height/100)^2)
+    inv_logit <- function( x ) {
+      p <- 1 / ( 1 + exp( -x ) )
+      p <- ifelse( x==Inf , 1 , p )
+      p
+    }
     
-    mu_prep2 <- rep(NA, 24000)
-    mu_prep2 <- (samples$gamma_sex*as.numeric(input$sex)+
-                  samples$gamma_age*((input$age-meanage)/sdage)+
-                  samples$gamma_weight*((input$weight-meanweight)/sdweight)+
-                  samples$gamma_height*((input$height-meanheight)/sdheight))
-
-  lik_norm <- dnorm((input$heart - meanheartw)/sdheartw,
-                  mean = samples$beta + mu_prep2,
-                  sd = samples$sigma)
-
-  lik_card <- demg((input$heart - meanheartw)/sdheartw,
-                   mu = (samples$beta + mu_prep2),
-                   sigma = samples$sigma,
-                   lambda = samples$lambda)
-
-  theta_rep <- rep(0, 24000)
-  theta_rep <-inv_logit(samples$theta_alpha +
-                          samples$theta_beta_age*((input$age-meanage)/sdage)+
-                          samples$theta_beta_sex*as.numeric(input$sex) +
-                         samples$theta_beta_bmi*((bmi-meanbmi)/sdbmi))
-
-  bf <- lik_card/lik_norm
-  podds <- theta_rep/(1-theta_rep)
-  
-  postprob <- bf*podds
-  
-  postprob <- postprob/(1+  postprob)
-  
-
-
-  beta <- sample(samples$beta, iter, replace = TRUE)
-  sigma <- sample(samples$sigma, iter, replace = TRUE)
-  lambda <- sample(samples$lambda, iter, replace = TRUE)
-  mu_prep2 <- sample(mu_prep2, iter, replace = TRUE)
-  theta_rep <- sample(theta_rep, iter, replace = TRUE)
-
-  for(i in 1:100){
-
-  noncardioest <- dnorm((i/10)-5,
-                        mean= beta + mu_prep2,
-                        sd = sigma)
-
-    cardioest <- demg((i/10)-5,
-                      mu = beta + mu_prep2,
-                      sigma = sigma,
-                      lambda = lambda)
- 
+    iter = 1000
+    BMI <- ((input$weight/((input$height/100)^2)))
+    heartweight <- input$heart/meanheartw
+    height <- input$height/meanheight
+    age <- input$age
+    
+    iter2 <- sample(1:24000, iter)
+    sigma <- samples$sigma[iter2]
+    alpha <- samples$alpha[iter2]
+    hw_incr <- samples$HW_incr[iter2]
+    lambda <- samples$lambda[iter2]
+    
+    theta <- samples$theta[iter2]
+    theta_beta_BMI <- samples$theta_beta_BMI[iter2,]
+    theta_beta_age <- samples$theta_beta_age[iter2,]
+    
+    if(age < 40){
+      agecat <- 1
+    }
+    if(age>= 40 & age< 50){
+      agecat <- 2
+    }
+    if(age>= 50 & age< 60){
+      agecat <- 3
+    }
+    if(age>= 60 & age< 70){
+      agecat <- 4
+    }
+    if(age>= 70){
+      agecat <- 5
+    }
+    
+    if(BMI < 18.5){
+      BMIcat <- 1
+    }
+    if(BMI>= 18.5 & BMI< 25){
+      BMIcat <- 2
+    }
+    if(BMI>= 25 & BMI< 30){
+      BMIcat <- 3
+    }
+    if(BMI>= 30 & BMI< 35){
+      BMIcat <- 4
+    }
+    if(BMI>= 35){
+      BMIcat <- 5
+    }
+    
+    baserate <- inv_logit(theta+theta_beta_BMI[,BMIcat]+theta_beta_age[,agecat])
+    mu <- (height^3)*(alpha)
+    cond_lik <- matrix(nrow=iter,ncol=2)
+    cond_lik[,1] <-  (1-baserate) * dnorm(heartweight, mu, sigma)
+    cond_lik[,2] <-   baserate* demg(heartweight, mu*hw_incr, sigma, lambda/(height^3))
+    
+    marginal.prob <- rep(NA, iter)
+    for(i in 1:iter)
+      marginal.prob[i] <- sum(cond_lik[i,1:2])
+    
+    postprob <- cond_lik/marginal.prob
+    
+    
+    for(i in 1:300){
       
-      bf <- cardioest/noncardioest
-      podds <- theta_rep/(1-theta_rep)
+      # i = 100
+      cond_lik2 <- matrix(nrow=iter,ncol=2)
       
-      prob2 <- bf*podds
+      cond_lik2[,1] <- (1-baserate)*dnorm((i/100),
+                                          mean= mu,
+                                          sd = sigma)
       
-      prob2 <- prob2/(1+prob2)
-
-    meanline[i] <- mean(prob2)
-    intermed <- hdi(prob2)
-
-    lowerline[i] <- intermed[1]
-    upperline[i] <- intermed[2]
-  }
-
-
-  #Wrap it in a dataframe for export
-  data <- list(
-    prob = postprob*100,
-    mean = (meanline)*100,
-    meanlow = (lowerline)*100,
-    meanupp = (upperline)*100,
-    hw =((((1:100)/10)-5) * sdheartw) + meanheartw,
-    iter = iter,
-    heart = input$heart
-  )
-  data
-})
-
+      cond_lik2[,2] <- baserate*demg((i/100),
+                                     mu,
+                                     sigma,
+                                     (lambda/((input$height/meanheight)^3)))
+      
+      marginal.prob2 <- rep(NA, iter)
+      for(n in 1:iter){
+        marginal.prob2[n] <- sum(cond_lik2[n,])
+      }
+      
+      prob2 <- cond_lik2/marginal.prob2
+      
+      meanline[i] <- mean(prob2[,2])
+      intermed <- hdi(prob2[,2])
+      
+      lowerline[i] <- intermed[1]
+      upperline[i] <- intermed[2]
+    }
+    
+    
+    #Wrap it in a dataframe for export
+    data <- list(
+      prob = postprob[,2]*100,
+      mean = (meanline)*100,
+      meanlow = (lowerline)*100,
+      meanupp = (upperline)*100,
+      hw =((((1:300)/100))) * meanheartw,
+      iter = iter,
+      heart = input$heart
+    )
+    data
+  })
+  
+  mydata3 <- eventReactive(input$goButton, {
+    inv_logit <- function( x ) {
+      p <- 1 / ( 1 + exp( -x ) )
+      p <- ifelse( x==Inf , 1 , p )
+      p
+    }
+    
+    iter = 1000
+    
+    heartweight <- input$heart/meanheartw
+    height <- input$height/meanheight
+    
+    iter2 <- sample(1:24000, iter)
+    sigma <- samples$sigma[iter2]
+    alpha <- samples$alpha[iter2]
+    hw_incr <- samples$HW_incr[iter2]
+    lambda <- samples$lambda[iter2]
+    
+    
+    mu <- (height^3)*(alpha)
+    uncond_lik <- matrix(nrow=iter,ncol=2)
+    uncond_lik[,1] <-  dnorm(heartweight, mu, sigma)
+    uncond_lik[,2] <- demg(heartweight, mu*hw_incr, sigma, lambda/(height^3))
+    
+    bayesfactor <- uncond_lik[,2]/uncond_lik[,1]
+    
+    
+    for(i in 1:300){
+      
+      uncond_lik2 <- matrix(nrow=iter,ncol=2)
+      
+      uncond_lik2[,1] <- dnorm((i/100),
+                               mean= mu,
+                               sd = sigma)
+      
+      uncond_lik2[,2] <- demg((i/100),
+                              mu,
+                              sigma,
+                              (lambda/((input$height/meanheight)^3)))
+      
+      
+      prob2 <- uncond_lik2[,2]/uncond_lik2[,1]
+      
+      meanline[i] <- mean(prob2)
+      intermed <- hdi(prob2)
+      
+      lowerline[i] <- intermed[1]
+      upperline[i] <- intermed[2]
+    }
+    
+    
+    #Wrap it in a dataframe for export
+    data <- list(
+      prob = bayesfactor,
+      mean = (meanline),
+      meanlow = (lowerline),
+      meanupp = (upperline),
+      hw =((((1:300)/100))) * meanheartw,
+      iter = iter,
+      heart = input$heart
+    )
+    data
+  })
+  
   #plot heart weight histograms
-output$plot <- renderPlot({
-
-  data <- mydata()
-  iter <- data$iter
-  heart <- data$heart
-
-  ggdat <- data.frame(heartweight = c( data$noncardiomegaly, data$cardiomegaly),
-                      Group = c(rep("Normal", iter), rep("Cardiomegaly", iter)))
-  ggdat$Group <- factor(ggdat$Group, levels = c("Normal", "Cardiomegaly"))
-  hwplot <- ggplot(data = ggdat, aes(x = heartweight, group = Group, fill = Group))+
-    geom_histogram(position = "identity", color = "black", alpha = 0.5) +
-    geom_vline(xintercept = heart, linetype = "dashed", size = 1, color = "black") +
-    xlab("Heart weight (g)\n Dashed line at measured heart weight") +
-    ylab("")+
-    scale_fill_manual(values = c("Normal" = "#0073B7", "Cardiomegaly"  = "#F39C12"))+
-    scale_color_manual(values = c("Normal" = "#1E3247", "Cardiomegaly"  = "#C68F43"))+
-    scale_x_continuous(limits = c(0, 1000), breaks = c(seq(0,1000,100)))+
-    scale_y_continuous(expand = c(0,0)) +
-    theme_bw()+
-    theme(legend.position="bottom", legend.title = element_blank())
-  hwplot
-
-})
-#plot the probability of cardiomegaly
+  output$plot <- renderPlot({
+    
+    data <- mydata()
+    iter <- data$iter
+    heart <- data$heart
+    
+    ggdat <- data.frame(heartweight = c( data$nonhypertrophy, data$hypertrophy),
+                        Group = c(rep("Normal", iter), rep("Hypertrophy", iter)))
+    ggdat$Group <- factor(ggdat$Group, levels = c("Normal", "Hypertrophy"))
+    hwplot <- ggplot(data = ggdat, aes(x = heartweight, group = Group, fill = Group))+
+      geom_histogram(position = "identity", color = "black", alpha = 0.5, bins = 60) +
+      geom_vline(xintercept = heart, linetype = "dashed", size = 1, color = "black") +
+      xlab("Heart weight (g)\n Dashed line at measured heart weight") +
+      ylab("")+
+      scale_fill_manual(values = c("Normal" = "#0073B7", "Hypertrophy"  = "#F39C12"))+
+      scale_color_manual(values = c("Normal" = "#1E3247", "Hypertrophy"  = "#C68F43"))+
+      scale_x_continuous(limits = c(0, 1000), breaks = c(seq(0,1000,100)))+
+      scale_y_continuous(expand = c(0,0)) +
+      theme_bw()+
+      theme(legend.position="bottom", legend.title = element_blank())
+    hwplot
+    
+  })
+  #plot the probability of Hypertrophy
   output$plot2 <- renderPlot({
     data <- mydata2()
     iter <- data$iter
     heart <- data$heart
-
-    data <- as.data.frame(data)
+    
+    data <- data.frame(mean = data$mean,
+                       meanlow = data$meanlow,
+                       meanupp = data$meanupp,
+                       hw = data$hw)
+    
     hwplot <- ggplot(data=data) +
       geom_line(data = data, aes(y=mean, x=hw), size = 0.5)+
       geom_line(data = data, aes(y=meanlow, x = hw)) +
       geom_line(data = data, aes(y=meanupp, x = hw)) +
       geom_vline(xintercept = heart, linetype = "dashed", size = 1, color = "black") +
-      geom_hline(yintercept = 50, linetype = "dotted", size = 0.5, color = "black") +
       geom_ribbon(aes(ymin=meanlow, ymax=meanupp, x = hw), fill = "#001F3F", alpha = 0.3)+
       xlab("Heart weight (g) \n Dashed line at measured heart weight, shaded area covers 95% HPDI") +
       ylab("") +
-      scale_y_continuous(limits = c(0, 100), labels = function(x) paste0(x, "%"))+
-      scale_x_continuous(limits = c(200,700), breaks = c(seq(200,700,100)))+
-      annotate(geom = "text", x = 200, y = 55, hjust = 0, vjust = 0, size = 3,
-               label=paste("Evidence for cardiomegaly")) +
-      annotate(geom = "text", x = 200, y = 45, hjust = 0, vjust = 1, size = 3,
-               label=paste("Evidence against cardiomegaly")) +
-      theme_bw()
-
-
+      scale_x_continuous(limits = c(200,700), breaks = seq(200,700,100))+
+      scale_y_continuous(limit = c(0,100), breaks =seq(0,100,10), labels = function(x) paste0(x, "%"))+
+      theme_bw() 
+    
     hwplot
-
+    
+  })
+  #plot bayesfactor of hypertrophic probability
+  output$plot3 <- renderPlot({
+    data <- mydata3()
+    iter <- data$iter
+    heart <- data$heart
+    
+    data <- data.frame(mean = data$mean,
+                       meanlow = data$meanlow,
+                       meanupp = data$meanupp,
+                       hw = data$hw)
+    
+    scientific_10 <- function(x) {   parse(text=gsub("1e\\+*", "10^", scales::scientific_format()(x))) }
+    
+    hwplot <- ggplot(data=data) +
+      geom_line(data = data, aes(y=mean, x=hw), size = 0.5)+
+      geom_line(data = data, aes(y=meanlow, x = hw)) +
+      geom_line(data = data, aes(y=meanupp, x = hw)) +
+      geom_vline(xintercept = heart, linetype = "dashed", size = 1, color = "black") +
+      geom_ribbon(aes(ymin=meanlow, ymax=meanupp, x = hw), fill = "#001F3F", alpha = 0.3)+
+      xlab("Heart weight (g) \n Dashed line at measured heart weight, shaded area covers 95% HPDI") +
+      ylab("") +
+      scale_y_continuous(limits = c(NA, 10^8), breaks = c(0, 1, 10, 10^2, 10^3, 10^4, 10^5, 10^6, 10^7, 10^8),
+                         # labels = scientific_10)+                         
+                         labels = c(0, 1, 10, 10^2, 10^3, 10^4, 10^5, 10^6, 10^7, 10^8))+
+      scale_x_continuous(limits = c(200,700), breaks = seq(200,700,100))+
+      geom_hline(yintercept = 1, linetype = "dashed", size = 0.5, color = "black") +
+      annotate(geom = "text", x = 200, y = 1, hjust = 0, vjust = 0, size = 2.5,
+               label=expression(paste(1, " Support barely worth mentioning")))+
+      
+      geom_hline(yintercept = 3.2, linetype = "dashed", size = 0.5, color = "black") +
+      annotate(geom = "text", x = 200, y = 3.2, hjust = 0, vjust = 0, size = 2.5,
+               label=expression(paste(3.2," Substantial support"))) +
+      
+      geom_hline(yintercept = 10, linetype = "dashed", size = 0.5, color = "black") +
+      annotate(geom = "text", x = 200, y = 10, hjust = 0, vjust = 0, size = 2.5,
+               label=expression(paste(10," Strong support"))) +
+      
+      geom_hline(yintercept = 100, linetype = "dashed", size = 0.5, color = "black") +
+      annotate(geom = "text", x = 200, y = 100, hjust = 0, vjust = 0, size = 2.5,
+               label=expression(paste(100," Decisive support"))) +
+      coord_trans(y = "log10")+
+      # ymax(1000)+
+      theme_bw()
+    #theme( axis.text.y = element_blank())
+    
+    
+    hwplot
+    
   })
   
-  # Plot exponentially modified gaussian examples
-  output$plot3 <- renderPlot({
-
+  output$plot_choose = renderUI({
+    if(input$type==0){
+      # paste("Probability of Hypertrophy")
+      plotOutput("plot2")
+    }else{
+      plotOutput("plot3")
+    }
+  })
+  
+  output$plot2_title = renderUI({ #title of BF or prob plot
     
-    hwplot1 <- ggplot() +
-      geom_histogram(aes(x = rnorm(100000,0,1)), fill = "#1E3247", alpha =.5, bins = 50) +
-      xlim(-10, 10) +
-      labs( x = expression(paste(mu==0~","~sigma==1)),
-            title = "Normal distribution")+
-      theme(plot.title = element_text(size=10), 
-            axis.text.y = element_blank(),
-            axis.title.y = element_blank(),
-            axis.ticks = element_blank())
-    
-    hwplot2 <- ggplot() +
-      geom_histogram(aes(x = rexp(100000, .4)), fill = "#C68F43", alpha =.5, bins = 50) +
-      xlim(-10, 10) +
-      labs( x = expression(paste(lambda==0.4)),
-            title = "Exponential distribution")+
-      theme(plot.title = element_text(size=10), 
-            axis.text.y = element_blank(),
-            axis.title.y = element_blank(),
-            axis.ticks = element_blank())
-    
-    hwplot3 <- ggplot() +
-      geom_histogram(aes(x = remg(100000,0,1,.4)), fill ="#001F3F", alpha =.5, bins = 50) +
-      xlim(-10, 10) +
-      labs( x = expression(paste(mu==0~","~sigma==1~","~lambda==0.4)),
-            title = "Exponentially modified normal distribution")+
-      theme(plot.title = element_text(size=10), 
-            axis.text.y = element_blank(),
-            axis.title.y = element_blank(),
-            axis.ticks = element_blank())
-    
-    hwplot4 <- ggarrange(hwplot1, hwplot2, hwplot3, ncol =1) 
+    if(input$type==0){
+      paste("Probability of hypertrophy")
       
-    hwplot4
+    }else{
+      paste("Bayes factor of hypertrophy")
+    }
     
   })
+  
+  output$box3_title = renderUI({ #title of BF or probbox
+    
+    if(input$type==0){
+      paste("Probability of hypertrophy")
+      
+    }else{
+      paste("Bayes factor of hypertrophy")
+    }
+    
+  })
+  
   output$text <- renderText({
     data <- mydata()
-
-    HDIodds_norm <- signif(hdi(data$noncardiomegaly, credMass = 0.95), digits = 3)
-
-    HTML(paste("mean =<b>  ", signif(mean(data$noncardiomegaly), digits = 3),
+    
+    HDIodds_norm <- signif(hdi(data$nonhypertrophy, credMass = 0.95), digits = 3)
+    
+    HTML(paste("mean =<b>  ", signif(mean(data$nonhypertrophy), digits = 3),
                " g </b><br>",HDIodds_norm[1]," - ",HDIodds_norm[2]," g, 95% HPDI"))
   })
-
+  
   output$text2 <- renderText({
     data <- mydata()
-
-    HDIodds_card <- signif(hdi(data$cardiomegaly, credMass = 0.95), digits = 3)
-
-    HTML(paste("mean =<b>", signif(mean(data$cardiomegaly), digits = 3),
+    
+    HDIodds_card <- signif(hdi(data$hypertrophy, credMass = 0.95), digits = 3)
+    
+    HTML(paste("mean =<b>", signif(mean(data$hypertrophy), digits = 3),
                " g </b><br>",HDIodds_card[1]," - ",HDIodds_card[2]," g, 95% HPDI"))
   })
-
+  
   output$text3 <- renderText({
     data <- mydata2()
-
-    HDIodds <- signif(hdi(data$prob, credMass = 0.95), digits = 2)
+    prob <- data$prob
+    HDIodds <- signif(hdi(prob, credMass = 0.95), digits = 2)
     HTML(paste("mean = <b>", signif(mean(data$prob), digits = 2),
                "% </b><br>",HDIodds[1]," - ",HDIodds[2],"%, 95% HPDI"))
-})
-
+  })
+  
+  output$text4 <- renderText({
+    data <- mydata3()
+    prob <- data$prob
+    HDIodds <- round(hdi(prob, credMass = 0.95), digits = 0)
+    HTML(paste("mean = <b>", round(mean(data$prob), digits = 0),
+               "</b><br>",HDIodds[1]," - ",HDIodds[2],", 95% HPDI"))
+  })
+  
+  output$text_choose = renderUI({
+    if(input$type==0){
+      htmlOutput("text3")
+    }else{
+      htmlOutput("text4")
+    }
+  })
+  
 }
 
 body <- dashboardBody(
   tabItems(
     tabItem(tabName = "calculator",
             fluidRow(
-              column(width = 8, 
+              column(width = 8,
                      box(
-                       title = "Histogram of 50,000 simulations",
-                       width = NULL
-                       ,
+                       title = "Histogram of 240,000 simulations",
+                       width = NULL,
                        plotOutput("plot")
                      ),
                      box(
-                       title = "Probability of cardiomegaly",
-                       width = NULL
-                       ,
-                       plotOutput("plot2")
+                       title = uiOutput("plot2_title"),
+                       width = NULL,
+                       uiOutput("plot_choose")
                      )
               ),
               column(width = 4,
                      box(
                        title = "Modeled heart weight",
                        width = NULL,
-                       background = "blue"
-                       ,
+                       background = "blue",
                        htmlOutput("text")
                      ),
                      box(
-                       title = "Modeled cardiomegalic heart weight",
+                       title = "Modeled hypertrophic heart weight",
                        width = NULL,
                        background = "yellow"
                        ,
                        htmlOutput("text2")
                      ),
+                     # uiOutput("box2"),
                      box(
-                       title = "Probability of cardiomegaly",
+                       # title = "Bayes factor or probability of hypertrophy hypothesis",
+                       title = uiOutput("box3_title"),
                        width = NULL,
-                       background = "navy"
-                       ,
-                       htmlOutput("text3")
+                       background = "navy",
+                       uiOutput("text_choose")
+                       # htmlOutput("text3")
                      ),
                      helpText(HTML(
                        'The source code of this app is <a href="https://github.com/formedum/HeartWeightCalc">on Github</a>.'
@@ -322,22 +463,30 @@ body <- dashboardBody(
                      
                      
               )
-            ), style = "width:650px;align:center;"
+            )
     )
     ,
     tabItem(tabName = "information",
             withMathJax(),
-            helpText("This heart weight calculator models heart weight as a mixture of normal and cardiomegalic hearts.
-                     Normal hearts are modeled as
-                     $$Heart\\ weight \\sim normal(\\mu, \\sigma)$$"),
-            helpText("while cardiomegalic hearts are modeled as an exponentially modified normal distribution
-                     $$Cardiomegalic\\ heart\\ weight \\sim ExModNormal(\\mu, \\sigma, \\lambda)$$"),
-            helpText("Since both distributions share the same mean and standard deviation this equivalent
-                     to cardiomegalic hearts being modeled as
-                     $$Cardiomegalic\\ heart weight = normal\\ heart\\ weight + exponential(\\lambda)$$
-                     as seen in the graphs below."),
-            plotOutput("plot3")
-
+            helpText("The probability of hypertrophy is calculated as 
+                     $$Pr(hypertrophy|heart\\ weight)=$$"),
+            helpText("$$\\frac{Pr(hypertrophy)\\times Pr(heart\\ weight|hypertrophy)}{Pr(hypertrophy)\\times Pr(heart\\ weight|hypertrophy)+Pr(normal)\\times Pr(heart\\ weight|normal)}
+$$"),
+            helpText(div(HTML("The probability is a function both of the likelihoods (i.e., <em>Pr(heart weight|hypertrophy)</em> and <em>Pr(heart weight|normal)</em> ) and the
+                              baserate (<em>(Pr(hypertrophy)</em>). As the baserate is a function of age and BMI 
+                                       there are subpopulations where the baserate is very high, 
+                                       meaning that the a priori there is a very slim probability of that heart not being hypertrophic"))),
+            helpText(div(HTML("If the decedent in question belongs to such a population (e.g., if BMI > 35 and
+                    age > 70) the baserate of hypertrophy is so high that even if a normal or low heart weight is measured (i.e., the likelihood of hypertrophy [<em>Pr(heart weight|hypertrophy)</em>] 
+                    is very low) the posterior probability of hypertrophy would still be high. As such, when baserates are very large or small 
+                                      it is instead recommended to instead use the Bayes factor (BF)."))),
+            helpText("$$BF=\\frac{Pr(heart\\ weight|hypertrophy)}{Pr(heart\\ weight|normal)}$$"),
+            helpText("The BF is the ratio between the two likelihoods and is a continous value between 0 and infinity. 
+                     It is harder to interpret than a pure probability but it has the advantage of being invariant to the baserate.
+                     The BF reflects the degree to which only the measured  heart weight itself supports the diagnosis of hypertrophy."),
+            helpText("The interpretation guidelines presented in the graph are adapted from"),
+            helpText(div(HTML("Kass RE, Raftery AE.  Bayes Factors. <em>Journal of the American Statistical Association</em> 1995;90(430):773–95. <a href =https://doi.org/10.1080/01621459.1995.10476572>https://doi.org/10.1080/01621459.1995.10476572</a>.
+"))),
     )
   )
 )
@@ -347,25 +496,32 @@ ui <-dashboardPage(
   dashboardSidebar(
     sidebarMenu(
       menuItem("Calculator", tabName = "calculator", icon = icon("calculator")),
-      menuItem("Information", tabName = "information", icon = icon("info")),
+      menuItem("Information*", tabName = "information", icon = icon("info")),
       numericInput("age", "Age",60,min=18, max = 150),
-      radioButtons("sex", "Sex",
-                   c("Female" = 0,
-                     "Male" = 1), selected = 1),
-      numericInput("height", "Height (cm)",180,min=0, max = 300),
-      numericInput("weight", "Weight (kg)",80,min=0, max = 300),
-      numericInput("heart", "Heart weight (g)", 540 ,min=0, max = 4000),
-      actionButton("goButton", "Simulate heart weights*")
-
-      ),
-    h6(em("*To improve computation time the app allows for minor simulation error"))
+      radioButtons("type", "Presentation type*",
+                   c("Posterior probability" = 0,
+                     "Bayes factor" = 1), selected = 1),
+      numericInput("height", "Height (cm)",180,min=150, max = 220),
+      numericInput("weight", "Weight (kg)",80,min=0, max = 120),
+      numericInput("heart", "Heart weight (g)", 388 ,min=0, max = 4000),
+      actionButton("goButton", "Simulate heart weights†")
+      
     ),
+    h6(em("†To improve computation time the app allows for minor simulation error"))
+  ),
   body
+  
+)
 
-  )
+if(input$heart==1){
+  
+}
 
 
 
 shinyApp(ui = ui, server = server)
+
+
+
 
 
