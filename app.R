@@ -4,7 +4,7 @@ library(tidyverse)
 library(HDInterval)
 library(ggpubr)
 
-samples <- readRDS("samples.rds")
+samples <- readRDS("samples_no_loglik.rds")
 #to standardize based on included data
 meanheartw <-442.8382
 meanheight <- 174.1788
@@ -25,9 +25,9 @@ server <- function(input, output) {
     
 
     
-    mu_hyper <- log(samples$`beta[2]`+samples$`beta_height[2]`*(input$height/meanheight))
+    mu_hyper <- log(samples$beta[,2]+samples$beta_height[,2]*(input$height/meanheight))
     
-    mu_norm <- log(samples$`beta[1]`+samples$`beta_height[1]`*(input$height/meanheight))
+    mu_norm <- log(samples$beta[,1]+samples$beta_height[,1]*(input$height/meanheight))
     # simulate heart weights
     hypertrophy <- rlnorm(iter,
                          mu_hyper,
@@ -55,8 +55,8 @@ server <- function(input, output) {
     height <- input$height/meanheight
 
     uncond_lik <- matrix(nrow=8000,ncol=2)
-    uncond_lik[,1] <-  dlnorm(heartweight, log(samples$`beta[1]`+samples$`beta_height[1]`*height), samples$sigma_norm)
-    uncond_lik[,2] <-  dlnorm(heartweight, log(samples$`beta[2]`+samples$`beta_height[2]`*height), samples$sigma)
+    uncond_lik[,1] <-  dlnorm(heartweight, log(samples$beta[,1]+samples$beta_height[,1]*height), samples$sigma_norm)
+    uncond_lik[,2] <-  dlnorm(heartweight, log(samples$beta[,2]+samples$beta_height[,2]*height), samples$sigma)
     
     bayesfactor <- sum(uncond_lik[,2])/sum(uncond_lik[,1])
     
@@ -66,11 +66,11 @@ server <- function(input, output) {
       uncond_lik2 <- matrix(nrow=8000,ncol=2)
       
       uncond_lik2[,1] <- dlnorm(((i+60)/100),
-                               log(samples$`beta[1]`+samples$`beta_height[1]`*height),
+                               log(samples$beta[,1]+samples$beta_height[,1]*height),
                                            samples$sigma_norm)
       
       uncond_lik2[,2] <- dlnorm(((i+60)/100),
-                              log(samples$`beta[2]`+samples$`beta_height[2]`*height),
+                              log(samples$beta[,2]+samples$beta_height[,2]*height),
                                      samples$sigma)
       
       
@@ -263,9 +263,6 @@ ui <-dashboardPage(
   
 )
 
-if(input$heart==1){
-  
-}
 
 
 
