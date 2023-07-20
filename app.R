@@ -103,15 +103,15 @@ server <- function(input, output) {
     heart <- data$heart
     
     ggdat <- data.frame(heartweight = c( data$nonhypertrophy, data$hypertrophy),
-                        Group = c(rep("Normal", 8000), rep("Hypertrophy", 8000)))
-    ggdat$Group <- factor(ggdat$Group, levels = c("Normal", "Hypertrophy"))
+                        Group = c(rep("Normal", 8000), rep("Enlarged", 8000)))
+    ggdat$Group <- factor(ggdat$Group, levels = c("Normal", "Enlarged"))
     hwplot <- ggplot(data = ggdat, aes(x = heartweight, group = Group, fill = Group))+
       geom_histogram(position = "identity", color = "black", alpha = 0.5, bins = 60) +
       geom_vline(xintercept = heart, linetype = "dashed", size = 1, color = "black") +
       xlab("Heart weight (g)\n Dashed line at measured heart weight") +
       ylab("")+
-      scale_fill_manual(values = c("Normal" = "#0073B7", "Hypertrophy"  = "#F39C12"))+
-      scale_color_manual(values = c("Normal" = "#1E3247", "Hypertrophy"  = "#C68F43"))+
+      scale_fill_manual(values = c("Normal" = "#0073B7", "Enlarged"  = "#F39C12"))+
+      scale_color_manual(values = c("Normal" = "#1E3247", "Enlarged"  = "#C68F43"))+
       scale_x_continuous(limits = c(0, 1000), breaks = c(seq(0,1000,100)))+
       scale_y_continuous(expand = c(0,0)) +
       theme_bw()+
@@ -220,14 +220,14 @@ body <- dashboardBody(
                        htmlOutput("text")
                      ),
                      box(
-                       title = "Modeled hypertrophic heart weight",
+                       title = "Modeled enlarged heart weight",
                        width = NULL,
                        background = "yellow"
                        ,
                        htmlOutput("text2")
                      ),
                      box(
-                       title = "Bayes factor in favour of hypertrophy hypothesis",
+                       title = "Bayes factor in favour of cardiac enlargement hypothesis",
                        width = NULL,
                        background = "navy",
                        htmlOutput("text3")
